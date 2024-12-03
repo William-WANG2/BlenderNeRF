@@ -116,21 +116,33 @@ class BlenderNeRF_Operator(bpy.types.Operator):
 
     # Select 1/10 of the points (vertices) in the mesh
     def select_one_tenth_of_points(obj):
+        # Ensure the object is a mesh
         if obj.type == 'MESH':
-            bpy.context.view_layer.objects.active = obj  # Set the mesh object as active
-            bpy.ops.object.mode_set(mode='EDIT')  # Switch to edit mode
-            bpy.ops.mesh.select_all(action='DESELECT')  # Deselect all vertices initially
+            # Make the object active and selected
+            bpy.context.view_layer.objects.active = obj
+            obj.select_set(True)
 
-            # Switch to object data for vertex manipulation
-            obj_data = obj.data
-            vertices = obj_data.vertices
+            # Switch to EDIT mode (ensure context is correct)
+            bpy.ops.object.mode_set(mode='EDIT')
 
-            bpy.ops.object.mode_set(mode='OBJECT')  # Switch to object mode for safe iteration
-            for i, vertex in enumerate(vertices):
-                if i % 10 == 0:  # Select every 10th vertex
-                    vertex.select = True
+            # Use bmesh to manipulate the mesh's vertices
+            import bmesh
+            bm = bmesh.from_edit_mesh(obj.data)
+            bm.verts.ensure_lookup_table()  # Ensure we can access vertices reliably
 
-            bpy.ops.object.mode_set(mode='EDIT')  # Return to edit mode for rendering selection
+            # Deselect all vertices
+            for v in bm.verts:
+                v.select = False
+
+            # Select every 10th vertex
+            for i, v in enumerate(bm.verts):
+                if i % 10 == 0:
+                    v.select = True
+
+            # Update the mesh and return to OBJECT mode
+            bmesh.update_edit_mesh(obj.data)
+            bpy.ops.object.mode_set(mode='OBJECT')
+
 
     # export vertex colors for each visible mesh
     def save_splats_ply(self, scene, directory):
