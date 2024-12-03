@@ -114,6 +114,24 @@ class BlenderNeRF_Operator(bpy.types.Operator):
 
         return camera_extr_dict
 
+    # Select 1/10 of the points (vertices) in the mesh
+    def select_one_tenth_of_points(obj):
+        if obj.type == 'MESH':
+            bpy.context.view_layer.objects.active = obj  # Set the mesh object as active
+            bpy.ops.object.mode_set(mode='EDIT')  # Switch to edit mode
+            bpy.ops.mesh.select_all(action='DESELECT')  # Deselect all vertices initially
+
+            # Switch to object data for vertex manipulation
+            obj_data = obj.data
+            vertices = obj_data.vertices
+
+            bpy.ops.object.mode_set(mode='OBJECT')  # Switch to object mode for safe iteration
+            for i, vertex in enumerate(vertices):
+                if i % 10 == 0:  # Select every 10th vertex
+                    vertex.select = True
+
+            bpy.ops.object.mode_set(mode='EDIT')  # Return to edit mode for rendering selection
+
     # export vertex colors for each visible mesh
     def save_splats_ply(self, scene, directory):
         # create temporary vertex colors
@@ -136,7 +154,8 @@ class BlenderNeRF_Operator(bpy.types.Operator):
         # select only visible meshes
         for obj in scene.objects:
             if obj.type == 'MESH' and self.is_object_visible(obj):
-                obj.select_set(True)
+                # obj.select_set(True)
+                BlenderNeRF_Operator.select_one_tenth_of_points(obj)
 
         # save ply file
         bpy.ops.wm.ply_export(filepath=os.path.join(directory, 'points3d.ply'), export_normals=True, export_attributes=False, ascii_format=True)
