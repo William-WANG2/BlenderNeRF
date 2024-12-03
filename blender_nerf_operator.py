@@ -115,43 +115,47 @@ class BlenderNeRF_Operator(bpy.types.Operator):
 
         return camera_extr_dict
 
-    # Select 1/10 of the points (vertices) in the mesh
+    # # export vertex colors for each visible mesh
+    # def save_splats_ply(self, scene, directory):
+    #     # create temporary vertex colors
+    #     for obj in scene.objects:
+    #         if obj.type == 'MESH':
+    #             if not obj.data.vertex_colors:
+    #                 obj.data.vertex_colors.new(name=TMP_VERTEX_COLORS)
 
-    def select_one_tenth_of_points(obj):
-        if obj.type == 'MESH':  # Ensure the object is a mesh
-            # Save the current mode
-            current_mode = bpy.context.object.mode if bpy.context.object else 'OBJECT'
+    #     if bpy.context.object is None:
+    #         self.report({'INFO'}, 'No object active. Setting first object as active.')
+    #         bpy.context.view_layer.objects.active = bpy.data.objects[0]
 
-            # Make the object active and switch to OBJECT mode
-            bpy.context.view_layer.objects.active = obj
-            bpy.ops.object.mode_set(mode='OBJECT')
-            obj.select_set(True)
+    #     init_mode = bpy.context.object.mode
+    #     bpy.ops.object.mode_set(mode='OBJECT')
 
-            # Switch to EDIT mode to access mesh data
-            bpy.ops.object.mode_set(mode='EDIT')
+    #     init_active_object = bpy.context.active_object
+    #     init_selected_objects = bpy.context.selected_objects
+    #     bpy.ops.object.select_all(action='DESELECT')
 
-            # Use bmesh to manipulate vertices
-            bm = bmesh.from_edit_mesh(obj.data)
+    #     # select only visible meshes
+    #     for obj in scene.objects:
+    #         if obj.type == 'MESH' and self.is_object_visible(obj):
+    #             obj.select_set(True)
 
-            # Deselect all vertices
-            for v in bm.verts:
-                v.select = False
+    #     # save ply file
+    #     bpy.ops.wm.ply_export(filepath=os.path.join(directory, 'points3d.ply'), export_normals=True, export_attributes=False, ascii_format=True)
 
-            # Select every 10th vertex
-            for i, v in enumerate(bm.verts):
-                if i % 10 == 0:
-                    v.select = True
+    #     # remove temporary vertex colors
+    #     for obj in scene.objects:
+    #         if obj.type == 'MESH' and self.is_object_visible(obj):
+    #             if obj.data.vertex_colors:
+    #                 obj.data.vertex_colors.remove(obj.data.vertex_colors[TMP_VERTEX_COLORS])
 
-            # Update the mesh with the changes and return to previous mode
-            bmesh.update_edit_mesh(obj.data)
-            bpy.ops.object.mode_set(mode='OBJECT')  # Exit EDIT mode
+    #     bpy.context.view_layer.objects.active = init_active_object
+    #     bpy.ops.object.select_all(action='DESELECT')
 
-            # Restore the original mode
-            if current_mode != 'OBJECT':
-                bpy.ops.object.mode_set(mode=current_mode)
+    #     # reselect previously selected objects
+    #     for obj in init_selected_objects:
+    #         obj.select_set(True)
 
-
-    # export vertex colors for each visible mesh
+    #     bpy.ops.object.mode_set(mode=init_mode)
     def save_splats_ply(self, scene, directory):
         # create temporary vertex colors
         for obj in scene.objects:
@@ -170,29 +174,67 @@ class BlenderNeRF_Operator(bpy.types.Operator):
         init_selected_objects = bpy.context.selected_objects
         bpy.ops.object.select_all(action='DESELECT')
 
-        # select only visible meshes
+        # Now process each visible mesh object
+        temp_objects = []
+
         for obj in scene.objects:
             if obj.type == 'MESH' and self.is_object_visible(obj):
-                # obj.select_set(True)
-                BlenderNeRF_Operator.select_one_tenth_of_points(obj)
+                # Create a copy of the object's mesh data
+                mesh = obj.data
+                mesh_copy = mesh.copy()
+                bm = bmesh.new()
+                bm.from_mesh(mesh_copy)
 
-        # save ply file
-        bpy.ops.wm.ply_export(filepath=os.path.join(directory, 'points3d.ply'), export_normals=True, export_attributes=False, ascii_format=True)
+                # Evenly select 1/20 of the vertices
+                total_verts = len(bm.verts)
+                num_to_select = max(1, total_verts // 20)
+                step = max(1, total_verts // num_to_select)
+                indices_to_keep = set(range(0, total_verts, step))
 
-        # remove temporary vertex colors
-        for obj in scene.objects:
-            if obj.type == 'MESH' and self.is_object_visible(obj):
+                verts_to_delete = []
+                for i, v in enumerate(bm.verts):
+                    if i not in indices_to_keep:
+                        verts_to_delete.append(v)
+
+                bmesh.ops.delete(bm, geom=verts_to_delete, context='VERTS')
+
+                # Update the mesh copy
+                bm.to_mesh(mesh_copy)
+                bm.free()
+
+                # Create a new temporary object with this mesh data
+                temp_obj = bpy.data.objects.new(name=obj.name + '_temp', object_data=mesh_copy)
+                scene.collection.objects.link(temp_obj)
+                temp_objects.append(temp_obj)
+
+        # Select the temporary objects
+        bpy.ops.object.select_all(action='DESELECT')
+        if temp_objects:
+            for temp_obj in temp_objects:
+                temp_obj.select_set(True)
+
+            # Set the context to the first temp object
+            bpy.context.view_layer.objects.active = temp_objects[0]
+
+            # Save ply file
+            bpy.ops.wm.ply_export(filepath=os.path.join(directory, 'points3d.ply'), export_normals=True, export_attributes=False, ascii_format=True)
+
+            # Remove temporary vertex colors
+            for obj in temp_objects:
                 if obj.data.vertex_colors:
                     obj.data.vertex_colors.remove(obj.data.vertex_colors[TMP_VERTEX_COLORS])
 
+            # Delete the temporary objects
+            bpy.ops.object.delete()
+
+        # Restore the original selection and active object
         bpy.context.view_layer.objects.active = init_active_object
         bpy.ops.object.select_all(action='DESELECT')
-
-        # reselect previously selected objects
         for obj in init_selected_objects:
             obj.select_set(True)
 
         bpy.ops.object.mode_set(mode=init_mode)
+
 
     def save_json(self, directory, filename, data, indent=4):
         filepath = os.path.join(directory, filename)
