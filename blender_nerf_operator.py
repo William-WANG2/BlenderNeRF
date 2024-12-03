@@ -3,6 +3,7 @@ import math
 import json
 import datetime
 import bpy
+import bmesh
 
 
 # global addon script variables
@@ -115,20 +116,22 @@ class BlenderNeRF_Operator(bpy.types.Operator):
         return camera_extr_dict
 
     # Select 1/10 of the points (vertices) in the mesh
+
     def select_one_tenth_of_points(obj):
-        # Ensure the object is a mesh
-        if obj.type == 'MESH':
-            # Make the object active and selected
+        if obj.type == 'MESH':  # Ensure the object is a mesh
+            # Save the current mode
+            current_mode = bpy.context.object.mode if bpy.context.object else 'OBJECT'
+
+            # Make the object active and switch to OBJECT mode
             bpy.context.view_layer.objects.active = obj
+            bpy.ops.object.mode_set(mode='OBJECT')
             obj.select_set(True)
 
-            # Switch to EDIT mode (ensure context is correct)
+            # Switch to EDIT mode to access mesh data
             bpy.ops.object.mode_set(mode='EDIT')
 
-            # Use bmesh to manipulate the mesh's vertices
-            import bmesh
+            # Use bmesh to manipulate vertices
             bm = bmesh.from_edit_mesh(obj.data)
-            bm.verts.ensure_lookup_table()  # Ensure we can access vertices reliably
 
             # Deselect all vertices
             for v in bm.verts:
@@ -139,9 +142,13 @@ class BlenderNeRF_Operator(bpy.types.Operator):
                 if i % 10 == 0:
                     v.select = True
 
-            # Update the mesh and return to OBJECT mode
+            # Update the mesh with the changes and return to previous mode
             bmesh.update_edit_mesh(obj.data)
-            bpy.ops.object.mode_set(mode='OBJECT')
+            bpy.ops.object.mode_set(mode='OBJECT')  # Exit EDIT mode
+
+            # Restore the original mode
+            if current_mode != 'OBJECT':
+                bpy.ops.object.mode_set(mode=current_mode)
 
 
     # export vertex colors for each visible mesh
