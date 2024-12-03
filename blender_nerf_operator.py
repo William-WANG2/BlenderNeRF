@@ -172,9 +172,9 @@ class BlenderNeRF_Operator(bpy.types.Operator):
         init_mode = bpy.context.object.mode
         bpy.ops.object.mode_set(mode='OBJECT')
 
-        # Store the initial active and selected objects to restore later
+        # Store the initial active object and selected objects to restore later
         init_active_object = bpy.context.active_object
-        init_selected_objects = scene.objects.copy()
+        init_selected_objects = [obj for obj in bpy.context.selected_objects]
         bpy.ops.object.select_all(action='DESELECT')
 
         # Prepare a new collection to store temporary meshes
@@ -203,7 +203,7 @@ class BlenderNeRF_Operator(bpy.types.Operator):
                 for vert in bm.verts:
                     vert.select = False
 
-                # Select every 'step' vertex to get approximately 1/20 of the vertices
+                # Select every 'step'-th vertex to get approximately 1/20 of the vertices
                 for i, vert in enumerate(bm.verts):
                     if i % step == 0:
                         vert.select = True
@@ -212,9 +212,16 @@ class BlenderNeRF_Operator(bpy.types.Operator):
                 bmesh.update_edit_mesh(temp_obj.data)
                 bpy.ops.object.mode_set(mode='OBJECT')
 
+                # Remove unselected vertices to keep only the selected ones
+                bpy.ops.object.mode_set(mode='EDIT')
+                bm = bmesh.from_edit_mesh(temp_obj.data)
+                bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.select], context='VERTS')
+                bmesh.update_edit_mesh(temp_obj.data)
+                bpy.ops.object.mode_set(mode='OBJECT')
+
         # Now export the temporary collection's objects to PLY
-        # Note: Blender's built-in PLY exporter does not support exporting multiple objects directly.
-        # Therefore, we'll join all temporary objects into one mesh before exporting.
+        # Note: Blender's built-in PLY exporter doesn't support exporting multiple objects directly,
+        # so we'll join all temporary objects into one mesh before exporting.
 
         # Select all temporary objects
         bpy.ops.object.select_all(action='DESELECT')
@@ -227,11 +234,10 @@ class BlenderNeRF_Operator(bpy.types.Operator):
 
         # Export the joined mesh to PLY
         ply_filepath = os.path.join(directory, 'points3d.ply')
-        bpy.ops.wm.ply_export(
+        bpy.ops.export_mesh.ply(
             filepath=ply_filepath,
             use_selection=True,
             use_normals=True,
-            use_attributes=False,
             use_ascii=True
         )
 
@@ -258,6 +264,7 @@ class BlenderNeRF_Operator(bpy.types.Operator):
 
         # Restore the initial mode
         bpy.ops.object.mode_set(mode=init_mode)
+
 
 
 
