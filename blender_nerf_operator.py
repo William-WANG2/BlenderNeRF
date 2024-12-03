@@ -158,7 +158,7 @@ class BlenderNeRF_Operator(bpy.types.Operator):
 
     #     bpy.ops.object.mode_set(mode=init_mode)
     def save_splats_ply(self, scene, directory):
-        # Create temporary vertex colors
+        # Create temporary vertex colors if they don't exist
         for obj in scene.objects:
             if obj.type == 'MESH':
                 if not obj.data.vertex_colors:
@@ -168,20 +168,19 @@ class BlenderNeRF_Operator(bpy.types.Operator):
             self.report({'INFO'}, 'No object active. Setting first object as active.')
             bpy.context.view_layer.objects.active = bpy.data.objects[0]
 
-        # Store the initial mode to restore later
+        # Store initial mode and settings to restore later
         init_mode = bpy.context.object.mode
         bpy.ops.object.mode_set(mode='OBJECT')
 
-        # Store the initial active object and selected objects to restore later
         init_active_object = bpy.context.active_object
         init_selected_objects = [obj for obj in bpy.context.selected_objects]
         bpy.ops.object.select_all(action='DESELECT')
 
-        # Prepare a new collection to store temporary meshes
+        # Create a temporary collection for processing
         temp_collection = bpy.data.collections.new("Temp_PLY_Export")
         scene.collection.children.link(temp_collection)
 
-        # Iterate over all objects to process visible meshes
+        # Iterate over visible mesh objects
         for obj in scene.objects:
             if obj.type == 'MESH' and self.is_object_visible(obj):
                 # Duplicate the object to avoid modifying the original
@@ -189,46 +188,31 @@ class BlenderNeRF_Operator(bpy.types.Operator):
                 temp_obj.data = obj.data.copy()
                 temp_collection.objects.link(temp_obj)
 
-                # Enter Edit Mode for the temporary object
+                # Set the temp object as active and enter Edit Mode
                 bpy.context.view_layer.objects.active = temp_obj
                 bpy.ops.object.mode_set(mode='EDIT')
 
                 # Initialize BMesh
                 bm = bmesh.from_edit_mesh(temp_obj.data)
 
-                total_vertices = len(bm.verts)
-                step = max(1, total_vertices // 20)
+                # Deselect all vertices (should be fast even on large meshes)
+                bm.select_mode = {'VERT'}
+                bm.select_flush(False)
 
-                # Deselect all vertices first
-                for vert in bm.verts:
-                    vert.select = False
+                # Select approximately 1/20 of the vertices using select_random
+                bmesh.ops.select_random(bm, verts=bm.verts, percent=5.0, seed=0)
 
-                # Select every 'step'-th vertex to get approximately 1/20 of the vertices
-                for i, vert in enumerate(bm.verts):
-                    if i % step == 0:
-                        vert.select = True
-
-                # Update the mesh with the selected vertices
-                bmesh.update_edit_mesh(temp_obj.data)
-                bpy.ops.object.mode_set(mode='OBJECT')
-
-                # Remove unselected vertices to keep only the selected ones
-                bpy.ops.object.mode_set(mode='EDIT')
-                bm = bmesh.from_edit_mesh(temp_obj.data)
+                # Delete unselected vertices (fast operation)
                 bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.select], context='VERTS')
+
+                # Update the mesh and exit Edit Mode
                 bmesh.update_edit_mesh(temp_obj.data)
                 bpy.ops.object.mode_set(mode='OBJECT')
 
-        # Now export the temporary collection's objects to PLY
-        # Note: Blender's built-in PLY exporter doesn't support exporting multiple objects directly,
-        # so we'll join all temporary objects into one mesh before exporting.
-
-        # Select all temporary objects
+        # Join all temporary objects into one mesh
         bpy.ops.object.select_all(action='DESELECT')
         for temp_obj in temp_collection.objects:
             temp_obj.select_set(True)
-
-        # Join selected temporary objects into a single mesh
         bpy.context.view_layer.objects.active = temp_collection.objects[0]
         bpy.ops.object.join()
 
@@ -241,12 +225,11 @@ class BlenderNeRF_Operator(bpy.types.Operator):
             use_ascii=True
         )
 
-        # Clean up: Remove the temporary collection and its objects
+        # Clean up: remove temporary objects and collection
         bpy.ops.object.select_all(action='DESELECT')
         for obj in temp_collection.objects:
             obj.select_set(True)
         bpy.ops.object.delete()
-
         bpy.data.collections.remove(temp_collection)
 
         # Remove temporary vertex colors
@@ -255,15 +238,13 @@ class BlenderNeRF_Operator(bpy.types.Operator):
                 if TMP_VERTEX_COLORS in obj.data.vertex_colors:
                     obj.data.vertex_colors.remove(obj.data.vertex_colors[TMP_VERTEX_COLORS])
 
-        # Restore the initial active object and selection
+        # Restore initial active object, selection, and mode
         bpy.context.view_layer.objects.active = init_active_object
         bpy.ops.object.select_all(action='DESELECT')
-
         for obj in init_selected_objects:
             obj.select_set(True)
-
-        # Restore the initial mode
         bpy.ops.object.mode_set(mode=init_mode)
+
 
 
 
