@@ -198,10 +198,11 @@ class BlenderNeRF_Operator(bpy.types.Operator):
                 # Deselect all vertices
                 bpy.ops.mesh.select_all(action='DESELECT')
 
-                # Select approximately 5% of the vertices randomly (1/20 = 5%)
-                bpy.ops.mesh.select_random(percent=5.0, seed=0)
+                # Select approximately 5% of the vertices randomly (1/20 = 0.05)
+                bpy.ops.mesh.select_random(ratio=0.05, seed=0, action='SELECT')
 
                 # Delete unselected vertices
+                bpy.ops.mesh.select_all(action='INVERT')
                 bpy.ops.mesh.delete(type='VERT')
 
                 # Exit Edit Mode
@@ -242,12 +243,6 @@ class BlenderNeRF_Operator(bpy.types.Operator):
         for obj in init_selected_objects:
             obj.select_set(True)
         bpy.ops.object.mode_set(mode=init_mode)
-
-
-
-
-
-
 
 
     def save_json(self, directory, filename, data, indent=4):
