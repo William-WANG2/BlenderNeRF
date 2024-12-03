@@ -157,7 +157,7 @@ class BlenderNeRF_Operator(bpy.types.Operator):
 
     #     bpy.ops.object.mode_set(mode=init_mode)
     def save_splats_ply(self, scene, directory):
-        # create temporary vertex colors
+        # Create temporary vertex colors if they don't exist
         for obj in scene.objects:
             if obj.type == 'MESH':
                 if not obj.data.vertex_colors:
@@ -170,15 +170,22 @@ class BlenderNeRF_Operator(bpy.types.Operator):
         init_mode = bpy.context.object.mode
         bpy.ops.object.mode_set(mode='OBJECT')
 
-        init_active_object = bpy.context.active_object
-        init_selected_objects = bpy.context.selected_objects
+        init_active_object = bpy.context.view_layer.objects.active
+        init_selected_objects = bpy.context.selected_objects.copy()
         bpy.ops.object.select_all(action='DESELECT')
 
-        # Now process each visible mesh object
+        # Lists to keep track of objects
         temp_objects = []
+        original_objects = []
 
+        # Process each visible mesh object
         for obj in scene.objects:
             if obj.type == 'MESH' and self.is_object_visible(obj):
+                # Hide the original object
+                obj.hide_viewport = True
+                obj.hide_render = True
+                original_objects.append(obj)
+
                 # Create a copy of the object's mesh data
                 mesh = obj.data
                 mesh_copy = mesh.copy()
@@ -188,17 +195,13 @@ class BlenderNeRF_Operator(bpy.types.Operator):
                 # Evenly select 1/20 of the vertices
                 total_verts = len(bm.verts)
                 num_to_select = max(1, total_verts // 20)
-                step = max(1, total_verts // num_to_select)
-                indices_to_keep = set(range(0, total_verts, step))
+                indices_to_keep = set(range(0, total_verts, max(1, total_verts // num_to_select)))
 
-                verts_to_delete = []
-                for i, v in enumerate(bm.verts):
-                    if i not in indices_to_keep:
-                        verts_to_delete.append(v)
+                verts_to_delete = [v for i, v in enumerate(bm.verts) if i not in indices_to_keep]
 
                 bmesh.ops.delete(bm, geom=verts_to_delete, context='VERTS')
 
-                # Update the mesh copy
+                # Update the mesh copy and free bmesh
                 bm.to_mesh(mesh_copy)
                 bm.free()
 
@@ -216,16 +219,31 @@ class BlenderNeRF_Operator(bpy.types.Operator):
             # Set the context to the first temp object
             bpy.context.view_layer.objects.active = temp_objects[0]
 
-            # Save ply file
-            bpy.ops.wm.ply_export(filepath=os.path.join(directory, 'points3d.ply'), export_normals=True, export_attributes=False, ascii_format=True)
+            # Save PLY file using the built-in exporter, exporting only selected objects
+            bpy.ops.export_mesh.ply(
+                filepath=os.path.join(directory, 'points3d.ply'),
+                use_selection=True,
+                use_normals=True,
+                use_uv_coords=False,
+                use_colors=True,
+                global_scale=1.0,
+                axis_forward='Y',
+                axis_up='Z',
+                use_ascii=True
+            )
 
             # Remove temporary vertex colors
             for obj in temp_objects:
-                if obj.data.vertex_colors:
+                if obj.data.vertex_colors and TMP_VERTEX_COLORS in obj.data.vertex_colors:
                     obj.data.vertex_colors.remove(obj.data.vertex_colors[TMP_VERTEX_COLORS])
 
             # Delete the temporary objects
             bpy.ops.object.delete()
+
+        # Unhide original objects
+        for obj in original_objects:
+            obj.hide_viewport = False
+            obj.hide_render = False
 
         # Restore the original selection and active object
         bpy.context.view_layer.objects.active = init_active_object
@@ -234,6 +252,7 @@ class BlenderNeRF_Operator(bpy.types.Operator):
             obj.select_set(True)
 
         bpy.ops.object.mode_set(mode=init_mode)
+
 
 
     def save_json(self, directory, filename, data, indent=4):
