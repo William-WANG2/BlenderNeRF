@@ -172,7 +172,7 @@ class BlenderNeRF_Operator(bpy.types.Operator):
         init_mode = bpy.context.object.mode
         bpy.ops.object.mode_set(mode='OBJECT')
 
-        init_active_object = bpy.context.active_object
+        init_active_object = bpy.context.view_layer.objects.active
         init_selected_objects = [obj for obj in bpy.context.selected_objects]
         bpy.ops.object.select_all(action='DESELECT')
 
@@ -192,21 +192,19 @@ class BlenderNeRF_Operator(bpy.types.Operator):
                 bpy.context.view_layer.objects.active = temp_obj
                 bpy.ops.object.mode_set(mode='EDIT')
 
-                # Initialize BMesh
-                bm = bmesh.from_edit_mesh(temp_obj.data)
+                # Ensure we're in vertex selection mode
+                bpy.ops.mesh.select_mode(type='VERT')
 
-                # Deselect all vertices (should be fast even on large meshes)
-                bm.select_mode = {'VERT'}
-                bm.select_flush(False)
+                # Deselect all vertices
+                bpy.ops.mesh.select_all(action='DESELECT')
 
-                # Select approximately 1/20 of the vertices using select_random
-                bmesh.ops.select_random(bm, verts=bm.verts, percent=5.0, seed=0)
+                # Select approximately 5% of the vertices randomly (1/20 = 5%)
+                bpy.ops.mesh.select_random(percent=5.0, seed=0)
 
-                # Delete unselected vertices (fast operation)
-                bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.select], context='VERTS')
+                # Delete unselected vertices
+                bpy.ops.mesh.delete(type='VERT')
 
-                # Update the mesh and exit Edit Mode
-                bmesh.update_edit_mesh(temp_obj.data)
+                # Exit Edit Mode
                 bpy.ops.object.mode_set(mode='OBJECT')
 
         # Join all temporary objects into one mesh
@@ -244,6 +242,7 @@ class BlenderNeRF_Operator(bpy.types.Operator):
         for obj in init_selected_objects:
             obj.select_set(True)
         bpy.ops.object.mode_set(mode=init_mode)
+
 
 
 
