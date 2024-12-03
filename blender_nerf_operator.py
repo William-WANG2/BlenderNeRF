@@ -4,6 +4,7 @@ import json
 import datetime
 import bpy
 import bmesh
+import struct
 
 
 # global addon script variables
@@ -157,6 +158,7 @@ class BlenderNeRF_Operator(bpy.types.Operator):
 
     #     bpy.ops.object.mode_set(mode=init_mode)
     def save_splats_ply(self, scene, directory):
+
         # Create temporary vertex colors if they don't exist
         for obj in scene.objects:
             if obj.type == 'MESH':
@@ -195,7 +197,8 @@ class BlenderNeRF_Operator(bpy.types.Operator):
                 # Evenly select 1/20 of the vertices
                 total_verts = len(bm.verts)
                 num_to_select = max(1, total_verts // 20)
-                indices_to_keep = set(range(0, total_verts, max(1, total_verts // num_to_select)))
+                step = max(1, total_verts // num_to_select)
+                indices_to_keep = set(range(0, total_verts, step))
 
                 verts_to_delete = [v for i, v in enumerate(bm.verts) if i not in indices_to_keep]
 
@@ -210,35 +213,72 @@ class BlenderNeRF_Operator(bpy.types.Operator):
                 scene.collection.objects.link(temp_obj)
                 temp_objects.append(temp_obj)
 
-        # Select the temporary objects
-        bpy.ops.object.select_all(action='DESELECT')
-        if temp_objects:
-            for temp_obj in temp_objects:
-                temp_obj.select_set(True)
+        # Collect vertex data from temporary objects
+        vertices = []
+        colors = []
+        for obj in temp_objects:
+            mesh = obj.data
 
-            # Set the context to the first temp object
-            bpy.context.view_layer.objects.active = temp_objects[0]
+            # Ensure the mesh has up-to-date normals and colors
+            mesh.calc_normals_split()
+            mesh.calc_loop_triangles()
+            mesh.calc_tangents()
 
-            # Save PLY file using the built-in exporter, exporting only selected objects
-            bpy.ops.export_mesh.ply(
-                filepath=os.path.join(directory, 'points3d.ply'),
-                use_selection=True,
-                use_normals=True,
-                use_uv_coords=False,
-                use_colors=True,
-                global_scale=1.0,
-                axis_forward='Y',
-                axis_up='Z',
-                use_ascii=True
-            )
+            # Get the active color layer
+            color_layer = mesh.vertex_colors.active
+            color_data = None
+            if color_layer:
+                color_data = color_layer.data
 
-            # Remove temporary vertex colors
-            for obj in temp_objects:
-                if obj.data.vertex_colors and TMP_VERTEX_COLORS in obj.data.vertex_colors:
-                    obj.data.vertex_colors.remove(obj.data.vertex_colors[TMP_VERTEX_COLORS])
+            # Map to store vertex indices to colors
+            vert_color_map = {}
 
-            # Delete the temporary objects
-            bpy.ops.object.delete()
+            if color_data:
+                # Build a map from vertex index to color
+                for loop in mesh.loops:
+                    vidx = loop.vertex_index
+                    color = color_data[loop.index].color
+                    vert_color_map[vidx] = color
+
+            for v in mesh.vertices:
+                vertices.append(v.co)
+                if vert_color_map:
+                    colors.append(vert_color_map.get(v.index, (1.0, 1.0, 1.0, 1.0)))
+                else:
+                    colors.append((1.0, 1.0, 1.0, 1.0))  # Default color if no vertex color layer
+
+        # Write PLY file manually
+        filepath = os.path.join(directory, 'points3d.ply')
+        with open(filepath, 'w') as f:
+            # Write header
+            f.write('ply\n')
+            f.write('format ascii 1.0\n')
+            f.write(f'element vertex {len(vertices)}\n')
+            f.write('property float x\n')
+            f.write('property float y\n')
+            f.write('property float z\n')
+            f.write('property uchar red\n')
+            f.write('property uchar green\n')
+            f.write('property uchar blue\n')
+            f.write('end_header\n')
+
+            # Write vertex data
+            for i, v in enumerate(vertices):
+                color = colors[i]
+                r = int(color[0] * 255)
+                g = int(color[1] * 255)
+                b = int(color[2] * 255)
+                f.write(f'{v.x} {v.y} {v.z} {r} {g} {b}\n')
+
+        # Remove temporary vertex colors
+        for obj in temp_objects:
+            if obj.data.vertex_colors and TMP_VERTEX_COLORS in obj.data.vertex_colors:
+                obj.data.vertex_colors.remove(obj.data.vertex_colors[TMP_VERTEX_COLORS])
+
+        # Delete the temporary objects and meshes
+        for temp_obj in temp_objects:
+            bpy.data.meshes.remove(temp_obj.data)
+            bpy.data.objects.remove(temp_obj)
 
         # Unhide original objects
         for obj in original_objects:
@@ -252,6 +292,7 @@ class BlenderNeRF_Operator(bpy.types.Operator):
             obj.select_set(True)
 
         bpy.ops.object.mode_set(mode=init_mode)
+
 
 
 
